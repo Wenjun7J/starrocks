@@ -1195,7 +1195,36 @@ public class ExpressionAnalyzer {
                         }
                     }
                 }
+            } else if (FunctionSet.FIELD.equals(fnName)) {
+                Type[] argsTypes = new Type[argumentTypes.length];
+                Type targetType;
+                boolean all_int = true;
+                boolean all_string = true;
+                for (int i = 0; i < argumentTypes.length; ++i) {
+                    if (argumentTypes[i] == Type.NULL) {
+                        continue;
+                    }
+                    if (argumentTypes[i] != Type.INT) {
+                        all_int = false;
+                    }
+                    if (argumentTypes[i] != Type.STRING) {
+                        all_string = false;
+                    }
+                }
+                if (all_int) {
+                    targetType = Type.INT;
+                } else if (all_string) {
+                    targetType = Type.STRING;
+                } else {
+                    targetType = Type.DOUBLE;
+                }
+                for (int i = 0; i < argumentTypes.length; ++i) {
+                    argsTypes[i] = targetType;
+                }
 
+                fn = Expr.getBuiltinFunction(fnName, argsTypes, true, Type.INT, Function.CompareMode.IS_IDENTICAL);
+                System.out.println("get function expected: field, and:" + fn.functionName() + " " + String.valueOf(fn.getArgs()[0].matchesType(Type.INT)));
+            }
             } else {
                 fn = Expr.getBuiltinFunction(fnName, argumentTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             }
