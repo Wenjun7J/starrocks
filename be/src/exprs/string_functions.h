@@ -558,38 +558,8 @@ public:
 
     DEFINE_VECTORIZED_FN(ngram_search_case_insensitive);
 
-    template <LogicalType Type>
-    static StatusOr<ColumnPtr> field(FunctionContext* context, const Columns& columns) {
+    DEFINE_VECTORIZED_FN_TEMPLATE(field);
 
-        RETURN_IF_COLUMNS_ONLY_NULL(columns);
-
-        const auto& type = context->get_return_type();
-
-        std::vector<ColumnViewer<Type>> list;
-        list.reserve(columns.size());
-        for (const ColumnPtr& col : columns) {
-            list.emplace_back(ColumnViewer<Type>(col));
-        }
-
-        auto size = columns[0]->size();
-        ColumnBuilder<Type> result(size, type.precision, type.scale);
-        for (int row = 0; row < size; row++) {
-            auto value = list[0].value(row);
-            bool is_null = false;
-            int id = 0;
-            int idx = 0;
-            for (auto& view : list) {
-                if (!view.is_null(row) && value == view.value(row)) {
-                    idx = id;
-                }
-                id ++;
-            }
-
-            result.append(idx, is_null);
-        }
-
-        return result.build(ColumnHelper::is_all_const(columns));
-    }
     static Status ngram_search_prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope);
     static Status ngram_search_case_insensitive_prepare(FunctionContext* context,
                                                         FunctionContext::FunctionStateScope scope);
@@ -696,6 +666,37 @@ StatusOr<ColumnPtr> StringFunctions::money_format_decimal(FunctionContext* conte
         // scale up
         money_format_decimal_impl<Type, true, true>(context, money_viewer, num_rows, 2 - scale, &result);
     }
+    return result.build(ColumnHelper::is_all_const(columns));
+}
+
+template <LogicalType Type>
+StatusOr<ColumnPtr> StringFunctions::field(FunctionContext* context, const Columns& columns) {
+
+    //RETURN_IF_COLUMNS_ONLY_NULL(columns);
+
+
+    std::vector<ColumnViewer<Type>> list;
+    list.reserve(columns.size());
+    for (const ColumnPtr& col : columns) {
+        list.emplace_back(ColumnViewer<Type>(col));
+    }
+
+    auto size = columns[0]->size();
+    ColumnBuilder<TYPE_INT> result(size);
+    for (int row = 0; row < size; row++) {
+        auto value = list[0].value(row);
+        int res, id = 1;
+        for (auto it = std::next(list.begin()); it != list.end(); it++) {
+            if (!it->is_null(row) && value == it->value(row)) {
+                res = id;
+                break;
+            }
+            id ++;
+        }
+
+        result.append(res);
+    }
+
     return result.build(ColumnHelper::is_all_const(columns));
 }
 

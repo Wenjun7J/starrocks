@@ -1155,6 +1155,49 @@ public class ExpressionAnalyzer {
                     sf.add(new StructField(literal.getStringValue(), node.getChild(i + 1).getType()));
                 }
                 fn.setRetType(new StructType(sf));
+            } else if (FunctionSet.FIELD.equals(fnName)) {
+                Type[] argsTypes = new Type[1];
+                Type targetType;
+                Integer intWidth = 0;
+                boolean allInt = true;
+                boolean allString = true;
+                for (int i = 0; i < argumentTypes.length; ++i) {
+                    if (argumentTypes[i].isNull()) {
+                        continue;
+                    }
+                    if (!argumentTypes[i].isIntegerType()) {
+                        allInt = false;
+                    } else {
+                        intWidth = Math.max(argumentTypes[i].getPrecision(), intWidth);
+                    }
+                    if (!argumentTypes[i].isStringType()) {
+                        allString = false;
+                    }
+                }
+                if (allInt) {
+                    if (intWidth == Type.TINYINT.getPrecision()) {
+                        targetType = Type.TINYINT;
+                    } else if (intWidth == Type.SMALLINT.getPrecision()) {
+                        targetType = Type.SMALLINT;
+                    } else if (intWidth == Type.INT.getPrecision()) {
+                        targetType = Type.INT;
+                    } else if (intWidth == Type.BIGINT.getPrecision()) {
+                        targetType = Type.BIGINT;
+                    } else if (intWidth == Type.LARGEINT.getPrecision()) {
+                        targetType = Type.LARGEINT;
+                    } else {
+                        throw new SemanticException("Unexpected Integer Size", intWidth); 
+                    }
+                } else if (allString) {
+                    targetType = Type.VARCHAR;
+                } else {
+                    targetType = Type.DOUBLE;
+                }
+                for (int i = 0; i < 1; ++i) {
+                    argsTypes[i] = targetType;
+                }
+
+                fn = Expr.getBuiltinFunction(fnName, argsTypes, true, Type.INT, Function.CompareMode.IS_IDENTICAL);
             } else if (DecimalV3FunctionAnalyzer.argumentTypeContainDecimalV3(fnName, argumentTypes)) {
                 // Since the priority of decimal version is higher than double version (according functionId),
                 // and in `Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF` mode, `Expr.getBuiltinFunction` always
@@ -1195,36 +1238,6 @@ public class ExpressionAnalyzer {
                         }
                     }
                 }
-            } else if (FunctionSet.FIELD.equals(fnName)) {
-                Type[] argsTypes = new Type[argumentTypes.length];
-                Type targetType;
-                boolean all_int = true;
-                boolean all_string = true;
-                for (int i = 0; i < argumentTypes.length; ++i) {
-                    if (argumentTypes[i] == Type.NULL) {
-                        continue;
-                    }
-                    if (argumentTypes[i] != Type.INT) {
-                        all_int = false;
-                    }
-                    if (argumentTypes[i] != Type.STRING) {
-                        all_string = false;
-                    }
-                }
-                if (all_int) {
-                    targetType = Type.INT;
-                } else if (all_string) {
-                    targetType = Type.STRING;
-                } else {
-                    targetType = Type.DOUBLE;
-                }
-                for (int i = 0; i < argumentTypes.length; ++i) {
-                    argsTypes[i] = targetType;
-                }
-
-                fn = Expr.getBuiltinFunction(fnName, argsTypes, true, Type.INT, Function.CompareMode.IS_IDENTICAL);
-                System.out.println("get function expected: field, and:" + fn.functionName() + " " + String.valueOf(fn.getArgs()[0].matchesType(Type.INT)));
-            }
             } else {
                 fn = Expr.getBuiltinFunction(fnName, argumentTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             }

@@ -373,6 +373,13 @@ vectorized_functions = [
     [30441, 'ngram_search_case_insensitive', True, False, 'DOUBLE', ['VARCHAR', 'VARCHAR', 'INT'],
      'StringFunctions::ngram_search_case_insensitive', 'StringFunctions::ngram_search_case_insensitive_prepare',
      'StringFunctions::ngram_search_close'],
+    [30450, 'field', True, False, 'INT', ['VARCHAR', '...'], 'StringFunctions::field<TYPE_VARCHAR>'],
+    [30451, 'field', True, False, 'INT', ['TINYINT', '...'], 'StringFunctions::field<TYPE_TINYINT>'],
+    [30452, 'field', True, False, 'INT', ['SMALLINT', '...'], 'StringFunctions::field<TYPE_SMALLINT>'],
+    [30453, 'field', True, False, 'INT', ['INT', '...'], 'StringFunctions::field<TYPE_INT>'],
+    [30454, 'field', True, False, 'INT', ['BIGINT', '...'], 'StringFunctions::field<TYPE_BIGINT>'],
+    [30455, 'field', True, False, 'INT', ['LARGEINT', '...'], 'StringFunctions::field<TYPE_LARGEINT>'],
+    [30456, 'field', True, False, 'INT', ['DOUBLE', '...'], 'StringFunctions::field<TYPE_DOUBLE>'],
 
     # Binary Functions
     # to_binary
