@@ -46,11 +46,11 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkState;
-import static com.starrocks.connector.hive.HiveWriteUtils.checkLocationProperties;
-import static com.starrocks.connector.hive.HiveWriteUtils.createDirectory;
-import static com.starrocks.connector.hive.HiveWriteUtils.isDirectory;
-import static com.starrocks.connector.hive.HiveWriteUtils.isEmpty;
-import static com.starrocks.connector.hive.HiveWriteUtils.pathExists;
+import static com.starrocks.connector.hive.HiveUtils.checkLocationProperties;
+import static com.starrocks.connector.hive.HiveUtils.createDirectory;
+import static com.starrocks.connector.hive.HiveUtils.isDirectory;
+import static com.starrocks.connector.hive.HiveUtils.isEmpty;
+import static com.starrocks.connector.hive.HiveUtils.pathExists;
 import static com.starrocks.server.CatalogMgr.ResourceMappingCatalog.toResourceName;
 
 public class HiveMetastoreOperations {

@@ -20,7 +20,7 @@ import com.starrocks.catalog.Table;
 import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
 import com.starrocks.connector.exception.StarRocksConnectorException;
-import com.starrocks.connector.hive.HiveWriteUtils;
+import com.starrocks.connector.hive.HiveUtils;
 import com.starrocks.connector.hive.Partition;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.SessionVariable;
@@ -46,9 +46,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import static com.starrocks.connector.hive.HiveWriteUtils.checkedDelete;
-import static com.starrocks.connector.hive.HiveWriteUtils.createDirectory;
-import static com.starrocks.connector.hive.HiveWriteUtils.fileCreatedByQuery;
+import static com.starrocks.connector.hive.HiveUtils.checkedDelete;
+import static com.starrocks.connector.hive.HiveUtils.createDirectory;
+import static com.starrocks.connector.hive.HiveUtils.fileCreatedByQuery;
 
 public class RemoteFileOperations {
     private static final Logger LOG = LogManager.getLogger(RemoteFileOperations.class);
@@ -298,11 +298,11 @@ public class RemoteFileOperations {
     }
 
     public boolean pathExists(Path path) {
-        return HiveWriteUtils.pathExists(path, conf);
+        return HiveUtils.pathExists(path, conf);
     }
 
     public boolean deleteIfExists(Path path, boolean recursive) {
-        return HiveWriteUtils.deleteIfExists(path, recursive, conf);
+        return HiveUtils.deleteIfExists(path, recursive, conf);
     }
 
     public FileStatus[] listStatus(Path path) {

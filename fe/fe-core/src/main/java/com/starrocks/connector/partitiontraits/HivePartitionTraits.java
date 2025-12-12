@@ -13,9 +13,13 @@
 // limitations under the License.
 package com.starrocks.connector.partitiontraits;
 
+import com.google.common.base.Preconditions;
+import com.starrocks.analysis.LiteralExpr;
 import com.starrocks.catalog.HivePartitionKey;
 import com.starrocks.catalog.HiveTable;
 import com.starrocks.catalog.PartitionKey;
+import com.starrocks.catalog.Type;
+import com.starrocks.common.AnalysisException;
 import com.starrocks.connector.PartitionInfo;
 import com.starrocks.server.GlobalStateMgr;
 
@@ -54,5 +58,21 @@ public class HivePartitionTraits extends DefaultTraits {
                 partitionNameWithPartition.values().stream()
                         .map(com.starrocks.connector.PartitionInfo::getModifiedTime)
                         .max(Long::compareTo);
+    }
+
+    @Override
+    public PartitionKey createPartitionKeyWithType(List<String> values, List<Type> types) throws AnalysisException {
+        Preconditions.checkState(values.size() == types.size(),
+                "columns size is %s, but values size is %s", types.size(), values.size());
+
+        PartitionKey partitionKey = super.createPartitionKeyWithType(values, types);
+        //createPartitionKeyWithType will generate a new precision and scale according to the value string.
+        for (int i = 0; i < types.size(); i++) {
+            LiteralExpr exprValue = partitionKey.getKeys().get(i);
+            if (exprValue.getType().isDecimalV3()) {
+                exprValue.setType(types.get(i)); //keep the precision and scale.
+            }
+        }
+        return partitionKey;
     }
 }

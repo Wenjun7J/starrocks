@@ -14,6 +14,11 @@
 
 package com.starrocks.connector.hive;
 
+import com.starrocks.analysis.DecimalLiteral;
+import com.starrocks.analysis.IntLiteral;
+import com.starrocks.analysis.LiteralExpr;
+import com.starrocks.catalog.PrimitiveType;
+import com.starrocks.catalog.ScalarType;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.ExceptionChecker;
 import com.starrocks.connector.exception.StarRocksConnectorException;
@@ -31,10 +36,10 @@ import java.util.Map;
 
 import static com.starrocks.connector.hive.MockedRemoteFileSystem.HDFS_HIVE_TABLE;
 
-public class HiveWriteUtilsTest {
+public class HiveUtilsTest {
     @Test
     public void testIsS3Url() {
-        Assertions.assertTrue(HiveWriteUtils.isS3Url("obs://"));
+        Assertions.assertTrue(HiveUtils.isS3Url("obs://"));
     }
 
     @Test
@@ -44,7 +49,7 @@ public class HiveWriteUtilsTest {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Can't create non-managed Hive table. Only supports creating hive table under Database location. " +
                         "You could execute command without external_location properties",
-                () -> HiveWriteUtils.checkLocationProperties(conf));
+                () -> HiveUtils.checkLocationProperties(conf));
     }
 
     @Test
@@ -52,7 +57,7 @@ public class HiveWriteUtilsTest {
         Path path = new Path("hdfs://127.0.0.1:9000/user/hive/warehouse/db");
         ExceptionChecker.expectThrowsWithMsg(StarRocksConnectorException.class,
                 "Failed to check path",
-                () -> HiveWriteUtils.pathExists(path, new Configuration()));
+                () -> HiveUtils.pathExists(path, new Configuration()));
 
         new MockUp<FileSystem>() {
             @Mock
@@ -60,7 +65,7 @@ public class HiveWriteUtilsTest {
                 return new MockedRemoteFileSystem(HDFS_HIVE_TABLE);
             }
         };
-        Assertions.assertFalse(HiveWriteUtils.pathExists(path, new Configuration()));
+        Assertions.assertFalse(HiveUtils.pathExists(path, new Configuration()));
     }
 
     @Test
@@ -68,7 +73,7 @@ public class HiveWriteUtilsTest {
         Path path = new Path("hdfs://127.0.0.1:9000/user/hive/warehouse/db");
         ExceptionChecker.expectThrowsWithMsg(StarRocksConnectorException.class,
                 "Failed checking path",
-                () -> HiveWriteUtils.isDirectory(path, new Configuration()));
+                () -> HiveUtils.isDirectory(path, new Configuration()));
 
         new MockUp<FileSystem>() {
             @Mock
@@ -76,7 +81,7 @@ public class HiveWriteUtilsTest {
                 return new MockedRemoteFileSystem(HDFS_HIVE_TABLE);
             }
         };
-        Assertions.assertFalse(HiveWriteUtils.isDirectory(path, new Configuration()));
+        Assertions.assertFalse(HiveUtils.isDirectory(path, new Configuration()));
     }
 
     @Test
@@ -84,7 +89,7 @@ public class HiveWriteUtilsTest {
         Path path = new Path("hdfs://127.0.0.1:9000/user/hive/warehouse/db");
         ExceptionChecker.expectThrowsWithMsg(StarRocksConnectorException.class,
                 "Failed to create directory",
-                () -> HiveWriteUtils.createDirectory(path, new Configuration()));
+                () -> HiveUtils.createDirectory(path, new Configuration()));
 
         new MockUp<FileSystem>() {
             @Mock
@@ -92,13 +97,24 @@ public class HiveWriteUtilsTest {
                 return new MockedRemoteFileSystem(HDFS_HIVE_TABLE);
             }
         };
+        
         ExceptionChecker.expectThrowsWithMsg(StarRocksConnectorException.class,
                 "Failed to create directory",
-                () -> HiveWriteUtils.createDirectory(path, new Configuration()));
+                () -> HiveUtils.createDirectory(path, new Configuration()));
     }
 
     @Test
-    public void testFileCreateByQuery() {
-        Assertions.assertFalse(HiveWriteUtils.fileCreatedByQuery("000000_0", "aaaa-bbbb"));
+    public void testNormalizeKeyDecimal() throws Exception {
+        ScalarType type = ScalarType.createDecimalV3Type(PrimitiveType.DECIMAL64, 10, 2);
+        DecimalLiteral decimalLiteral = new DecimalLiteral("1.235", type);
+        LiteralExpr normalized = HiveUtils.normalizeKey(decimalLiteral, type);
+        Assertions.assertTrue(normalized instanceof DecimalLiteral);
+        Assertions.assertEquals("1.24", ((DecimalLiteral) normalized).getValue().toPlainString());
+    }
+
+    @Test
+    public void testNormalizeKeyNonDecimal() {
+        LiteralExpr literal = new IntLiteral(5);
+        Assertions.assertSame(literal, HiveUtils.normalizeKey(literal, literal.getType()));
     }
 }
