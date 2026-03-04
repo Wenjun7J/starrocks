@@ -134,8 +134,15 @@ public class IcebergPartitionUtils {
             throw new StarRocksConnectorException("Partition column %s not found in table %s.%s.%s",
                     partitionColumn.getName(), table.getCatalogName(), table.getCatalogDBName(), table.getCatalogTableName());
         }
-        String transform = partitionField.transform().toString();
-        IcebergPartitionTransform icebergPartitionTransform = IcebergPartitionTransform.fromString(transform);
+        return getDateTimeIntervalFromIceberg(partitionField);
+    }
+
+    public static PartitionUtil.DateTimeInterval getDateTimeIntervalFromIceberg(PartitionField partitionField) {
+        if (partitionField == null) {
+            return PartitionUtil.DateTimeInterval.NONE;
+        }
+        IcebergPartitionTransform icebergPartitionTransform =
+                IcebergPartitionTransform.fromString(partitionField.transform().toString());
         switch (icebergPartitionTransform) {
             case YEAR:
                 return PartitionUtil.DateTimeInterval.YEAR;

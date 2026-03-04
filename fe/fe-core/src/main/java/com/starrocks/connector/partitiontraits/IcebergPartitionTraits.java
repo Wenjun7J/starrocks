@@ -24,11 +24,14 @@ import com.starrocks.common.AnalysisException;
 import com.starrocks.common.tvr.TvrTableSnapshot;
 import com.starrocks.connector.ConnectorMetadatRequestContext;
 import com.starrocks.connector.PartitionInfo;
+import com.starrocks.connector.PartitionUtil;
 import com.starrocks.connector.iceberg.IcebergPartitionUtils;
 import com.starrocks.server.GlobalStateMgr;
+import com.starrocks.sql.ast.expression.Expr;
 import com.starrocks.sql.ast.expression.LiteralExpr;
 import com.starrocks.sql.ast.expression.LiteralExprFactory;
 import com.starrocks.sql.ast.expression.NullLiteral;
+import com.starrocks.sql.common.PCellSortedSet;
 import com.starrocks.type.Type;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.Snapshot;
@@ -37,6 +40,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class IcebergPartitionTraits extends DefaultTraits {
@@ -82,6 +86,14 @@ public class IcebergPartitionTraits extends DefaultTraits {
         requestContext.setTableVersionRange(TvrTableSnapshot.of(snapshotId));
         return GlobalStateMgr.getCurrentState().getMetadataMgr().listPartitionNames(
                 table.getCatalogName(), getCatalogDBName(), getTableName(), requestContext);
+    }
+
+    @Override
+    public PCellSortedSet getPartitionKeyRange(Column partitionColumn, Expr partitionExpr)
+            throws AnalysisException {
+        Map<String, PartitionInfo> partitionNameWithPartitionInfo = getPartitionNameWithPartitionInfo();
+        return PartitionUtil.getRangePartitionMapOfIcebergTable(table, partitionColumn,
+                partitionNameWithPartitionInfo, partitionExpr);
     }
 
     @Override
@@ -169,4 +181,3 @@ public class IcebergPartitionTraits extends DefaultTraits {
         return partitionKey;
     }
 }
-

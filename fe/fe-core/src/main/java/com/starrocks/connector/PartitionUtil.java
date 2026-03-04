@@ -25,8 +25,10 @@ import com.google.common.collect.Range;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.FunctionSet;
 import com.starrocks.catalog.HivePartitionKey;
+import com.starrocks.catalog.IcebergPartitionKey;
 import com.starrocks.catalog.IcebergTable;
 import com.starrocks.catalog.MaterializedView;
+import com.starrocks.catalog.NullablePartitionKey;
 import com.starrocks.catalog.PartitionKey;
 import com.starrocks.catalog.Table;
 import com.starrocks.catalog.TableName;
@@ -36,6 +38,7 @@ import com.starrocks.common.StarRocksException;
 import com.starrocks.common.util.DateUtils;
 import com.starrocks.common.util.TimeUtils;
 import com.starrocks.connector.exception.StarRocksConnectorException;
+import com.starrocks.connector.iceberg.IcebergPartitionTransform;
 import com.starrocks.connector.iceberg.IcebergPartitionUtils;
 import com.starrocks.planner.PartitionColumnFilter;
 import com.starrocks.qe.ConnectContext;
@@ -52,6 +55,7 @@ import com.starrocks.sql.ast.expression.Expr;
 import com.starrocks.sql.ast.expression.FunctionCallExpr;
 import com.starrocks.sql.ast.expression.IntLiteral;
 import com.starrocks.sql.ast.expression.LiteralExpr;
+import com.starrocks.sql.ast.expression.LiteralExprFactory;
 import com.starrocks.sql.ast.expression.MaxLiteral;
 import com.starrocks.sql.ast.expression.NullLiteral;
 import com.starrocks.sql.ast.expression.SlotRef;
@@ -84,6 +88,7 @@ import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Partitioning;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.StructProjection;
@@ -96,6 +101,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -171,6 +177,22 @@ public class PartitionUtil {
             resultBuilder.add(unescapePathName(piece.substring(idx + 1)));
         }
         return resultBuilder.build();
+    }
+
+    // If partitionName is `par_col=0/par_date=2020-01-01`, return map {par_col=0, par_date=2020-01-01}
+    private static Map<String, String> toPartitionValueMap(String partitionName) {
+        Map<String, String> valueMap = Maps.newHashMap();
+        Iterable<String> pieces = Splitter.on("/").split(partitionName);
+        for (String piece : pieces) {
+            int idx = piece.indexOf("=");
+            if (idx == -1) {
+                continue;
+            }
+            String key = unescapePathName(piece.substring(0, idx));
+            String value = unescapePathName(piece.substring(idx + 1));
+            valueMap.put(key, value);
+        }
+        return valueMap;
     }
 
     public static String toHivePartitionName(List<String> partitionColumnNames,
@@ -547,6 +569,52 @@ public class PartitionUtil {
         return mvPartitionRangeMap;
     }
 
+    public static PCellSortedSet getRangePartitionMapOfIcebergTable(Table table,
+                                                                     Column partitionColumn,
+                                                                     Map<String, PartitionInfo> partitionNameWithPartitionInfo,
+                                                                     Expr partitionExpr) throws AnalysisException {
+        if (!(table instanceof IcebergTable) || partitionNameWithPartitionInfo == null
+                || partitionNameWithPartitionInfo.isEmpty()) {
+            return getRangePartitionMapOfExternalTable(
+                    table, partitionColumn,
+                    partitionNameWithPartitionInfo == null ? Collections.emptyList() : partitionNameWithPartitionInfo.keySet(),
+                    partitionExpr);
+        }
+
+        IcebergTable icebergTable = (IcebergTable) table;
+        if (table.isUnPartitioned()) {
+            return PCellSortedSet.of();
+        }
+        boolean isConvertToDate = isConvertToDate(partitionExpr, partitionColumn);
+        PrimitiveType partitionColPrimType = isConvertToDate ? PrimitiveType.DATE : partitionColumn.getPrimitiveType();
+
+        List<IcebergPartitionKeyInterval> partitions = Lists.newArrayList();
+        for (Map.Entry<String, PartitionInfo> entry : partitionNameWithPartitionInfo.entrySet()) {
+            PartitionSpec spec = getPartitionSpecForIceberg(icebergTable, entry.getValue());
+            if (spec == null) {
+                continue;
+            }
+            Optional<IcebergPartitionKeyInterval> keyInterval =
+                    createIcebergPartitionKeyInterval(entry.getKey(), spec, icebergTable, partitionColumn,
+                            isConvertToDate, partitionColPrimType);
+            keyInterval.ifPresent(partitions::add);
+        }
+
+        partitions.sort(Comparator.comparing(IcebergPartitionKeyInterval::getPartitionKey));
+        PCellSortedSet mvPartitionRangeMap = PCellSortedSet.of();
+
+        for (IcebergPartitionKeyInterval item : partitions) {
+            PartitionKey lowerBound = isConvertToDate ? convertToDate(item.getPartitionKey()) : item.getPartitionKey();
+            if (lowerBound.getKeys().get(0).isNullable()) {
+                lowerBound = PartitionKey.createInfinityPartitionKeyWithType(
+                        ImmutableList.of(partitionColPrimType), false);
+            }
+            PartitionKey upperBound = nextPartitionKey(lowerBound, item.getInterval(), partitionColPrimType);
+            mvPartitionRangeMap.add(item.getPartitionName(), PRangeCell.of(Range.closedOpen(lowerBound, upperBound)));
+        }
+        return mvPartitionRangeMap;
+    }
+
     public static PartitionKey nextPartitionKey(PartitionKey lastPartitionKey,
                                                 DateTimeInterval dateTimeInterval,
                                                 PrimitiveType partitionColPrimType) throws AnalysisException {
@@ -627,6 +695,102 @@ public class PartitionUtil {
         Preconditions.checkState(!mvPartitionRangeMap.containsName(partitionName));
         mvPartitionRangeMap.add(partitionName, PRangeCell.of(Range.openClosed(lastPartitionKey, upperBound)));
     }
+
+    private static PartitionSpec getPartitionSpecForIceberg(IcebergTable table, PartitionInfo partitionInfo) {
+        if (partitionInfo instanceof com.starrocks.connector.iceberg.Partition) {
+            int specId = ((com.starrocks.connector.iceberg.Partition) partitionInfo).getSpecId();
+            PartitionSpec spec = table.getNativeTable().specs().get(specId);
+            if (spec != null) {
+                return spec;
+            }
+        }
+        return table.getNativeTable().spec();
+    }
+
+    private static PartitionField getPartitionFieldForColumn(PartitionSpec spec, Schema schema, String partitionColumn) {
+        for (PartitionField field : spec.fields()) {
+            String sourceName = schema.findColumnName(field.sourceId());
+            if (partitionColumn.equalsIgnoreCase(sourceName)) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    private static Optional<IcebergPartitionKeyInterval> createIcebergPartitionKeyInterval(
+            String partitionName,
+            PartitionSpec spec,
+            IcebergTable table,
+            Column partitionColumn,
+            boolean isConvertToDate,
+            PrimitiveType partitionColPrimType) throws AnalysisException {
+        Schema schema = table.getNativeTable().schema();
+        PartitionField field = getPartitionFieldForColumn(spec, schema, partitionColumn.getName());
+        if (field == null || field.transform().isVoid()) {
+            return Optional.empty();
+        }
+
+        Map<String, String> valueMap = toPartitionValueMap(partitionName);
+        String rawValue = valueMap.get(field.name());
+        if (rawValue == null) {
+            return Optional.empty();
+        }
+
+        IcebergPartitionTransform transform =
+                IcebergPartitionTransform.fromString(field.transform().toString());
+
+        PartitionKey partitionKey = new IcebergPartitionKey();
+        Type literalType = isConvertToDate ? Type.DATE : partitionColumn.getType();
+        String partitionValue = rawValue;
+        if (partitionKey instanceof NullablePartitionKey
+                && ((NullablePartitionKey) partitionKey).nullPartitionValueList().contains(partitionValue)) {
+            partitionKey.setNullPartitionValue(partitionValue);
+            partitionValue = null;
+        } else if (transform == IcebergPartitionTransform.YEAR
+                || transform == IcebergPartitionTransform.MONTH
+                || transform == IcebergPartitionTransform.DAY
+                || transform == IcebergPartitionTransform.HOUR) {
+            partitionValue = IcebergPartitionUtils.normalizeTimePartitionName(
+                    partitionValue, field, schema, literalType);
+        }
+
+        LiteralExpr exprValue = partitionValue == null
+                ? NullLiteral.create(literalType)
+                : LiteralExprFactory.create(partitionValue, literalType);
+        partitionKey.pushColumn(exprValue, partitionColPrimType);
+        if (exprValue.getType().isDecimalV3()) {
+            exprValue.setType(literalType);
+        }
+
+        DateTimeInterval interval = IcebergPartitionUtils.getDateTimeIntervalFromIceberg(field);
+        return Optional.of(new IcebergPartitionKeyInterval(partitionName, partitionKey, interval));
+    }
+
+    private static class IcebergPartitionKeyInterval {
+        private final String partitionName;
+        private final PartitionKey partitionKey;
+        private final DateTimeInterval interval;
+
+        private IcebergPartitionKeyInterval(String partitionName, PartitionKey partitionKey,
+                                            DateTimeInterval interval) {
+            this.partitionName = partitionName;
+            this.partitionKey = partitionKey;
+            this.interval = interval == null ? DateTimeInterval.NONE : interval;
+        }
+
+        public String getPartitionName() {
+            return partitionName;
+        }
+
+        public PartitionKey getPartitionKey() {
+            return partitionKey;
+        }
+
+        public DateTimeInterval getInterval() {
+            return interval;
+        }
+    }
+
     /**
      * If base table column type is string but partition type is date, we need to convert the string to date
      * @param partitionExpr   PARTITION BY expr

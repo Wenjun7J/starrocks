@@ -620,7 +620,7 @@ public class PartitionBasedMvRefreshProcessorIcebergTest extends MVTestBase {
 
     @Test
     public void testRefreshMvWithIcebergPartitionEvolution() throws Exception {
-        // Create MV on Iceberg table without partition evolution
+        // Create MV on Iceberg table with partition evolution and ensure refresh works
         String mvName = "iceberg_refresh_evolution_mv";
         starRocksAssert.useDatabase("test")
                 .withMaterializedView("CREATE MATERIALIZED VIEW `test`.`" + mvName + "`\n" +
@@ -630,40 +630,16 @@ public class PartitionBasedMvRefreshProcessorIcebergTest extends MVTestBase {
                         "PROPERTIES (\n" +
                         "\"replication_num\" = \"1\"\n" +
                         ")\n" +
-                        "AS SELECT id, data, ts FROM `iceberg0`.`partitioned_transforms_db`.`t0_month` as a;");
+                        "AS SELECT id, data, ts FROM `iceberg0`.`partitioned_transforms_db`."
+                        + "`t0_date_month_identity_evolution` as a;");
 
         Database testDb = GlobalStateMgr.getCurrentState().getLocalMetastore().getDb("test");
         MaterializedView mv = ((MaterializedView) GlobalStateMgr.getCurrentState().getLocalMetastore()
                 .getTable(testDb.getFullName(), mvName));
 
-        // First refresh should succeed
+        // Refresh should succeed even when base table has multiple partition specs
         triggerRefreshMv(testDb, mv);
-
-        // Now simulate partition evolution by changing the base table to one with evolution
-        // This simulates the scenario where the base table has done partition evolution after MV creation
-        // We do this by altering the MV's base table info to point to the evolution table
-        // Note: This is a test-only approach to verify the check works
-
-        // Create a new MV directly on the evolution table - should fail during creation
-        String mvName2 = "iceberg_evolution_mv2";
-        try {
-            starRocksAssert.useDatabase("test")
-                    .withMaterializedView("CREATE MATERIALIZED VIEW `test`.`" + mvName2 + "`\n" +
-                            "PARTITION BY date_trunc('month', ts)\n" +
-                            "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n" +
-                            "REFRESH DEFERRED MANUAL\n" +
-                            "PROPERTIES (\n" +
-                            "\"replication_num\" = \"1\"\n" +
-                            ")\n" +
-                            "AS SELECT id, data, ts FROM `iceberg0`.`partitioned_transforms_db`."
-                            + "`t0_date_month_identity_evolution` as a;");
-            Assertions.fail("Should fail because Iceberg table has partition evolution");
-        } catch (Exception e) {
-            Assertions.assertTrue(e.getMessage().contains(
-                    "Do not support create materialized view when base iceberg table"));
-            Assertions.assertTrue(e.getMessage().contains("has done partition evolution"));
-        }
-
+        Assertions.assertFalse(mv.getPartitions().isEmpty());
         starRocksAssert.dropMaterializedView(mvName);
     }
 }

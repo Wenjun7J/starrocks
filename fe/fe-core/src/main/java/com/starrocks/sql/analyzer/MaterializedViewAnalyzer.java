@@ -217,15 +217,6 @@ public class MaterializedViewAnalyzer {
                 continue;
             }
 
-            // Check if the table is an Iceberg table with partition evolution
-            if (table instanceof IcebergTable) {
-                IcebergTable icebergTable = (IcebergTable) table;
-                if (icebergTable.getNativeTable().specs().size() > 1) {
-                    throw new SemanticException("Do not support create materialized view when base iceberg table " +
-                            table.getName() + " has done partition evolution", tableNameInfo.getPos());
-                }
-            }
-
             if (!FeConstants.isReplayFromQueryDump && !isSupportedExternalTables(table)) {
                 throw new SemanticException(
                         "Only supports creating materialized views based on the external table " +
@@ -1424,10 +1415,6 @@ public class MaterializedViewAnalyzer {
                 throw new SemanticException("Materialized view partition column in partition exp " +
                         "must be base table partition column");
             } else {
-                if (icebergTable.specs().size() > 1) {
-                    throw new SemanticException("Do not support create materialized view when " +
-                            "base iceberg table has partition evolution");
-                }
                 boolean found = false;
                 for (PartitionField partitionField : partitionSpec.fields()) {
                     IcebergPartitionTransform transform =

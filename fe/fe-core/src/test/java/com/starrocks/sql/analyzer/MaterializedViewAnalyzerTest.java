@@ -502,27 +502,27 @@ public class MaterializedViewAnalyzerTest {
     }
 
     @Test
-    public void testCreateMvOnIcebergTableWithPartitionEvolution() {
-        // Test creating MV on Iceberg table with partition evolution should fail
+    public void testCreateMvOnIcebergTableWithPartitionEvolution() throws Exception {
+        // Should be able to create MV even when base Iceberg table has partition evolution
         String mvName = "iceberg_evolution_mv";
-        try {
-            starRocksAssert.useDatabase("test")
-                    .withMaterializedView("CREATE MATERIALIZED VIEW `test`.`" + mvName + "`\n" +
-                            "COMMENT \"MATERIALIZED_VIEW\"\n" +
-                            "PARTITION BY date_trunc('month', ts)\n" +
-                            "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n" +
-                            "REFRESH DEFERRED MANUAL\n" +
-                            "PROPERTIES (\n" +
-                            "\"replication_num\" = \"1\"\n" +
-                            ")\n" +
-                            "AS SELECT id, data, ts FROM `iceberg0`.`partitioned_transforms_db`."
-                            + "`t0_date_month_identity_evolution` as a;");
-            Assertions.fail("Should fail because Iceberg table has partition evolution");
-        } catch (Exception e) {
-            Assertions.assertTrue(e.getMessage().contains(
-                    "Do not support create materialized view when base iceberg table"));
-            Assertions.assertTrue(e.getMessage().contains("has done partition evolution"));
-        }
+        starRocksAssert.useDatabase("test")
+                .withMaterializedView("CREATE MATERIALIZED VIEW `test`.`" + mvName + "`\n" +
+                        "COMMENT \"MATERIALIZED_VIEW\"\n" +
+                        "PARTITION BY date_trunc('month', ts)\n" +
+                        "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n" +
+                        "REFRESH DEFERRED MANUAL\n" +
+                        "PROPERTIES (\n" +
+                        "\"replication_num\" = \"1\"\n" +
+                        ")\n" +
+                        "AS SELECT id, data, ts FROM `iceberg0`.`partitioned_transforms_db`."
+                        + "`t0_date_month_identity_evolution` as a;");
+
+        Database testDb = starRocksAssert.getCtx().getGlobalStateMgr().getLocalMetastore().getDb("test");
+        MaterializedView mv = (MaterializedView) GlobalStateMgr.getCurrentState().getLocalMetastore()
+                .getTable(testDb.getFullName(), mvName);
+        Assertions.assertNotNull(mv);
+        Assertions.assertTrue(mv.getPartitionInfo().isRangePartition());
+        starRocksAssert.dropMaterializedView(mvName);
     }
 
     @Test
