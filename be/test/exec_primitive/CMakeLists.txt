@@ -19,6 +19,7 @@ endif()
 
 set(EXEC_PRIMITIVE_TEST_FILES
     ${BE_TEST_MACOS_LINK_STUBS}
+    agg_state_bounded_exec_primitive_test.cpp
     data_sink/data_sink_core_test.cpp
     exec_node_exec_primitive_test.cpp
     ${BE_TEST_JNI_ENV_STUB}
