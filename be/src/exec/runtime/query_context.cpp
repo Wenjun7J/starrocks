@@ -165,8 +165,22 @@ void QueryContext::init_mem_tracker(int64_t query_mem_limit, MemTracker* parent,
         size_t lowest_limit = parent->lowest_limit();
         size_t tracker_reserve_limit = -1;
 
+        _static_query_mem_limit = lowest_limit;
+        if (query_mem_limit > 0) {
+            _static_query_mem_limit = std::min(query_mem_limit, _static_query_mem_limit);
+        }
+        if (big_query_mem_limit > 0) {
+            _static_query_mem_limit = std::min(big_query_mem_limit, _static_query_mem_limit);
+        }
+
         if (spill_mem_reserve_ratio.has_value()) {
-            tracker_reserve_limit = lowest_limit * spill_mem_reserve_ratio.value();
+            // The spill reserve watermark must sit below the query's effective
+            // memory budget: try_consume_with_limited() checks reserve_limit in
+            // place of the tracker limit, so a watermark derived from the pool
+            // budget alone lands above any smaller per-query limit and the
+            // reserve-failure spill trigger can never fire before the hard
+            // limit kills the query.
+            tracker_reserve_limit = _static_query_mem_limit * spill_mem_reserve_ratio.value();
         }
 
         if (wg != nullptr && big_query_mem_limit > 0 &&
@@ -182,13 +196,6 @@ void QueryContext::init_mem_tracker(int64_t query_mem_limit, MemTracker* parent,
         }
         _query_runtime_state.set_query_mem_tracker(_mem_tracker.get());
 
-        _static_query_mem_limit = lowest_limit;
-        if (query_mem_limit > 0) {
-            _static_query_mem_limit = std::min(query_mem_limit, _static_query_mem_limit);
-        }
-        if (big_query_mem_limit > 0) {
-            _static_query_mem_limit = std::min(big_query_mem_limit, _static_query_mem_limit);
-        }
         _connector_scan_operator_mem_share_arbitrator = _object_pool.add(new ConnectorScanOperatorMemShareArbitrator(
                 _static_query_mem_limit, connector_scan_node_number, connector_scan_default_data_source_mem_bytes));
         if (runtime_state != nullptr && runtime_state->enable_global_late_materialization()) {
